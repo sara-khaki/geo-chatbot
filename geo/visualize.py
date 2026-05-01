@@ -145,6 +145,16 @@ def generate_map(
                     dash_array="5 10",
                 ).add_to(m)
 
+    # Fit map bounds to show all results properly
+    if not gdf.empty:
+        sw = [gdf["lat"].min(), gdf["lon"].min()]
+        ne = [gdf["lat"].max(), gdf["lon"].max()]
+        # Add padding so markers aren't at the very edge
+        pad = 0.005
+        sw = [sw[0] - pad, sw[1] - pad]
+        ne = [ne[0] + pad, ne[1] + pad]
+        m.fit_bounds([sw, ne])
+
     folium.LayerControl().add_to(m)
 
     if title:

@@ -5,8 +5,8 @@ You have access to the following tools:
 
 1. **query_osm(poi_type, location, radius)** - Query OpenStreetMap via Overpass API
    - poi_type: Type of place (hastane, eczane, park, okul, restoran, cami, müze, otel, banka, market, kafe, kütüphane, etc.)
-   - location: District/neighborhood name in Istanbul (Kadıköy, Beşiktaş, Taksim, Fatih, Üsküdar, etc.)
-   - radius: Search radius in meters (default 3000)
+   - location: District OR neighborhood name in Istanbul. Can be a large district (Kadıköy, Beşiktaş, Fatih) or a specific neighborhood/mahalle (Suadiye, Moda, Bebek, Cihangir, Nişantaşı, Caddebostan, Fenerbahçe, Bostancı, Göztepe, etc.). Always extract the most specific location name from the query.
+   - radius: Search radius in meters. Use 1500 for neighborhoods (mahalle/semt), 3000 for districts (ilçe). If not sure, omit and the system will pick automatically.
 
 2. **calculate_distance(point_a, point_b)** - Calculate Haversine distance between two points
    - point_a: (lat, lon) tuple
@@ -91,6 +91,30 @@ User: "Beşiktaş'taki parkları kümele"
     }
   ],
   "answer_template": "Beşiktaş'taki parklar {n_clusters} kümeye ayrıldı:"
+}
+
+User: "Suadiye deki marketleri göster"
+{
+  "thought": "Kullanıcı Suadiye mahallesindeki marketleri görmek istiyor. Suadiye Kadıköy'de bir mahalle. query_osm tool'unu kullanarak Suadiye bölgesinde market araması yapacağım.",
+  "actions": [
+    {
+      "tool": "query_osm",
+      "params": {"poi_type": "market", "location": "suadiye", "radius": 1500}
+    }
+  ],
+  "answer_template": "Suadiye bölgesinde {count} adet market bulundu. İşte detaylar:"
+}
+
+User: "Moda'daki kafeleri bul"
+{
+  "thought": "Kullanıcı Moda mahallesindeki kafeleri arıyor. Moda, Kadıköy'de bir semt. query_osm tool'unu kullanacağım.",
+  "actions": [
+    {
+      "tool": "query_osm",
+      "params": {"poi_type": "kafe", "location": "moda", "radius": 1500}
+    }
+  ],
+  "answer_template": "Moda bölgesinde {count} adet kafe bulundu. İşte detaylar:"
 }
 """
 

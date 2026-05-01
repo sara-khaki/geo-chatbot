@@ -169,7 +169,7 @@ class GeoAgent:
             "otopark", "parking", "metro", "durak", "otobüs",
         ]
 
-        from geo.osm_client import DISTRICT_COORDS
+        from geo.osm_client import _ALL_LOCATIONS, get_district_coords
 
         found_poi = None
         for poi in poi_types:
@@ -177,11 +177,44 @@ class GeoAgent:
                 found_poi = poi
                 break
 
+        # Strategy for finding location in the query:
+        # 1. Check all known location names (districts + neighborhoods)
+        # 2. Extract candidate location words and try geocoding
         found_location = None
-        for district in DISTRICT_COORDS:
-            if district in query_lower:
-                found_location = district
+
+        # First, check all known locations (longest match first to prefer
+        # "kadıköy çarşı" over "kadıköy")
+        sorted_locations = sorted(_ALL_LOCATIONS.keys(), key=len, reverse=True)
+        for loc_name in sorted_locations:
+            if loc_name in query_lower:
+                found_location = loc_name
                 break
+
+        # If no known location matched, try to extract location from the query
+        # by removing known POI words and common Turkish grammar words
+        if found_location is None:
+            stop_words = {
+                "deki", "daki", "deki", "daki", "taki", "teki",
+                "deli", "dali",
+                "göster", "goster", "bul", "listele", "haritada",
+                "en", "yakın", "yakin", "kaç", "kac", "tane",
+                "küme", "kume", "grupla", "kümele", "kumele",
+                "mesafe", "uzaklık", "uzaklik", "istatistik",
+                "nerede", "neredeki", "var", "olan",
+                "ile", "arası", "arasi", "arasındaki", "arasindaki",
+            }
+            stop_words.update(poi_types)
+
+            # Split query into words, remove stop words and POI types
+            words = re.split(r"[\s''`]+", query_lower)
+            candidate_words = [w.strip(",.?!") for w in words if w.strip(",.?!") and w.strip(",.?!") not in stop_words]
+
+            # Try each candidate word and multi-word combinations as locations
+            for word in candidate_words:
+                coords = get_district_coords(word)
+                if coords:
+                    found_location = word
+                    break
 
         is_nearest = any(w in query_lower for w in ["yakın", "nearest", "en yakın", "closest"])
         is_cluster = any(w in query_lower for w in ["küme", "cluster", "grupla", "kümele"])

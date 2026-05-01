@@ -3,7 +3,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from geo.osm_client import query_osm as _query_osm, get_district_coords
+from geo.osm_client import query_osm as _query_osm, get_district_coords, get_location_radius
 from geo.analysis import (
     calculate_distance as _calc_dist,
     find_nearest as _find_nearest,
@@ -92,7 +92,13 @@ def execute_tool(tool_name: str, params: dict) -> dict:
 def _execute_query_osm(params: dict) -> dict:
     poi_type = params.get("poi_type", "")
     location = params.get("location")
-    radius = int(params.get("radius", 3000))
+    raw_radius = params.get("radius")
+
+    # Use smart radius: if user didn't specify, pick based on location type
+    if raw_radius is not None:
+        radius = int(raw_radius)
+    else:
+        radius = get_location_radius(location) if location else 3000
 
     gdf = _query_osm(poi_type, location, radius)
 
