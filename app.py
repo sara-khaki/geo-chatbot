@@ -5,6 +5,7 @@ import sys
 import os
 import folium
 from streamlit_folium import st_folium
+from streamlit_js_eval import get_geolocation
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -317,7 +318,7 @@ div[data-testid="stExpander"] details {
 </style>
 """, unsafe_allow_html=True)
 
-def _fallback_direct(query: str) -> dict:
+def _fallback_direct(query: str, user_location: dict = None) -> dict:
     from agent.core import GeoAgent
 
     class FallbackAgent(GeoAgent):
@@ -329,10 +330,12 @@ def _fallback_direct(query: str) -> dict:
             raise Exception("LLM not available")
 
     agent = FallbackAgent()
-    return agent._fallback_process(query)
+    return agent._fallback_process(query, user_location=user_location)
 
 
 EXAMPLE_QUERIES = [
+    {"icon": "📍", "text": "Bana en yakın 3 hastaneyi bul", "query": "Bana en yakın 3 hastaneyi bul"},
+    {"icon": "📍", "text": "Yakınımdaki eczaneleri göster", "query": "Yakınımdaki eczaneleri göster"},
     {"icon": "🏥", "text": "Kadıköy'deki hastaneleri göster", "query": "Kadıköy'deki hastaneleri göster"},
     {"icon": "💊", "text": "Taksim'e en yakın 5 eczaneyi bul", "query": "Taksim'e en yakın 5 eczaneyi bul"},
     {"icon": "🌳", "text": "Beşiktaş'taki parkları kümele", "query": "Beşiktaş'taki parkları kümele"},
@@ -363,6 +366,10 @@ if "total_queries" not in st.session_state:
     st.session_state.total_queries = 0
 if "total_results" not in st.session_state:
     st.session_state.total_results = 0
+if "user_location" not in st.session_state:
+    st.session_state.user_location = None
+if "location_map_click" not in st.session_state:
+    st.session_state.location_map_click = None
 
 
 with st.sidebar:
@@ -398,9 +405,94 @@ with st.sidebar:
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
+    st.markdown("### 📍 Konumum")
+
+    loc_col1, loc_col2 = st.columns(2)
+    with loc_col1:
+        use_gps = st.button("📡 Konumumu Kullan", key="gps_btn", use_container_width=True)
+    with loc_col2:
+        clear_loc = st.button("🗑️ Temizle", key="clear_loc_btn", use_container_width=True)
+
+    if clear_loc:
+        st.session_state.user_location = None
+        st.session_state.location_map_click = None
+        st.rerun()
+
+    if use_gps:
+        with st.spinner("Konum alınıyor..."):
+            geo_data = get_geolocation()
+            if geo_data and "coords" in geo_data:
+                st.session_state.user_location = {
+                    "lat": geo_data["coords"]["latitude"],
+                    "lon": geo_data["coords"]["longitude"],
+                }
+                st.rerun()
+            elif geo_data:
+                st.warning("Konum alınamadı. Lütfen tarayıcı izinlerini kontrol edin.")
+
+    st.markdown("""
+    <p style="color:#A0AEC0; font-size:0.75rem; margin:0.3rem 0;">
+        veya haritada bir noktaya tıklayın:
+    </p>
+    """, unsafe_allow_html=True)
+
+    location_map = folium.Map(
+        location=[41.0082, 28.9784],
+        zoom_start=10,
+        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        attr="CARTO",
+        width="100%",
+        height=150,
+    )
+
+    if st.session_state.user_location:
+        folium.Marker(
+            location=[st.session_state.user_location["lat"], st.session_state.user_location["lon"]],
+            icon=folium.Icon(color="red", icon="user", prefix="glyphicon"),
+            popup="Konumunuz",
+        ).add_to(location_map)
+
+    map_click = st_folium(
+        location_map,
+        height=150,
+        width=None,
+        key="location_picker",
+        returned_objects=["last_clicked"],
+    )
+
+    if map_click and map_click.get("last_clicked"):
+        clicked = map_click["last_clicked"]
+        st.session_state.user_location = {"lat": clicked["lat"], "lon": clicked["lng"]}
+        st.session_state.location_map_click = clicked
+
+    if st.session_state.user_location:
+        loc = st.session_state.user_location
+        st.markdown(f"""
+        <div style="background: rgba(0,212,170,0.1); border: 1px solid rgba(0,212,170,0.3);
+                    border-radius: 8px; padding: 0.5rem; margin: 0.3rem 0; text-align: center;">
+            <span style="color: #00D4AA; font-size: 0.8rem; font-weight: 600;">
+                ✓ Konum Ayarlandı
+            </span><br>
+            <span style="color: #A0AEC0; font-size: 0.72rem;">
+                {loc['lat']:.5f}°N, {loc['lon']:.5f}°E
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="background: rgba(108,99,255,0.08); border: 1px solid rgba(108,99,255,0.2);
+                    border-radius: 8px; padding: 0.5rem; margin: 0.3rem 0; text-align: center;">
+            <span style="color: #A0AEC0; font-size: 0.75rem;">
+                Konum belirlenmedi
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+
     st.markdown("### Desteklenen Araçlar")
     tools_html = ""
-    for t in ["query_osm", "find_nearest", "cluster_points", "calculate_distance", "generate_map", "get_statistics"]:
+    for t in ["query_osm", "find_nearest", "find_near_me", "cluster_points", "calculate_distance", "generate_map", "get_statistics"]:
         tools_html += f'<span class="tool-badge">{t}</span> '
     st.markdown(tools_html, unsafe_allow_html=True)
 
@@ -540,8 +632,24 @@ if default_value and not user_input:
     user_input = default_value
 
 if user_input:
+    query_lower = user_input.lower()
+    needs_location = any(w in query_lower for w in ["bana yakın", "yakınımdaki", "yakınımda", "etrafımdaki", "çevremdeki", "near me", "around me"])
+
+    if needs_location and not st.session_state.user_location:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": "📍 Konumunuz henüz ayarlanmamış. Lütfen sol paneldeki **Konumum** bölümünden konumunuzu belirleyin (GPS butonu veya haritaya tıklayarak).",
+            "map": None, "gdf": None, "stats": None, "logs": [],
+        })
+        st.rerun()
+
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.session_state.total_queries += 1
+
+    user_coords = None
+    if needs_location and st.session_state.user_location:
+        user_coords = st.session_state.user_location
 
     if not st.session_state.agent_ready:
         try:
@@ -553,12 +661,12 @@ if user_input:
     with st.spinner("Agent düşünüyor..."):
         if st.session_state.agent_ready and st.session_state.agent:
             try:
-                result = st.session_state.agent.process_query(user_input)
+                result = st.session_state.agent.process_query(user_input, user_location=user_coords)
             except Exception as e:
                 from agent.tools import execute_tool
-                result = _fallback_direct(user_input)
+                result = _fallback_direct(user_input, user_location=user_coords)
         else:
-            result = _fallback_direct(user_input)
+            result = _fallback_direct(user_input, user_location=user_coords)
 
     answer = result.get("answer", "Bir hata oluştu.")
     gdf = result.get("gdf")

@@ -60,14 +60,21 @@ class GeoAgent:
             "answer_template": response_text,
         }
 
-    def process_query(self, user_query: str) -> dict:
+    def process_query(self, user_query: str, user_location: dict = None) -> dict:
         self.clear_logs()
         self._log("USER_QUERY", user_query)
 
+        if user_location:
+            self._log("THOUGHT", f"Kullanıcı konumu mevcut: {user_location['lat']:.5f}, {user_location['lon']:.5f}")
+
         self._log("THOUGHT", "Kullanıcı sorgusunu analiz ediyorum...")
 
+        location_context = ""
+        if user_location:
+            location_context = f"\n\nNote: The user's current location is lat={user_location['lat']}, lon={user_location['lon']}. If they ask for things 'near me' or 'yakınımdaki', use these coordinates as target_lat and target_lon with find_nearest tool."
+
         messages = [
-            {"role": "user", "content": PARSE_PROMPT.format(query=user_query)},
+            {"role": "user", "content": PARSE_PROMPT.format(query=user_query) + location_context},
         ]
 
         try:
@@ -75,7 +82,7 @@ class GeoAgent:
             self._log("LLM_RESPONSE", llm_response)
         except Exception as e:
             self._log("ERROR", f"LLM çağrısı başarısız: {str(e)}")
-            return self._fallback_process(user_query)
+            return self._fallback_process(user_query, user_location=user_location)
 
         parsed = self._parse_llm_response(llm_response)
         thought = parsed.get("thought", "")
@@ -86,7 +93,15 @@ class GeoAgent:
 
         if not actions:
             self._log("FALLBACK", "LLM aksiyon üretemedi, fallback kullanılıyor.")
-            return self._fallback_process(user_query)
+            return self._fallback_process(user_query, user_location=user_location)
+
+        if user_location:
+            for action in actions:
+                if action.get("tool") == "find_nearest":
+                    params = action.get("params", {})
+                    if params.get("target_lat") is None:
+                        params["target_lat"] = user_location["lat"]
+                        params["target_lon"] = user_location["lon"]
 
         results = []
         for action in actions:
@@ -156,7 +171,7 @@ class GeoAgent:
         merged["answer"] = answer
         return merged
 
-    def _fallback_process(self, query: str) -> dict:
+    def _fallback_process(self, query: str, user_location: dict = None) -> dict:
         self._log("FALLBACK", "Fallback mekanizması devreye girdi.")
 
         query_lower = query.lower()
@@ -190,8 +205,6 @@ class GeoAgent:
                 found_location = loc_name
                 break
 
-        # If no known location matched, try to extract location from the query
-        # by removing known POI words and common Turkish grammar words
         if found_location is None:
             stop_words = {
                 "deki", "daki", "deki", "daki", "taki", "teki",
@@ -205,17 +218,16 @@ class GeoAgent:
             }
             stop_words.update(poi_types)
 
-            # Split query into words, remove stop words and POI types
             words = re.split(r"[\s''`]+", query_lower)
             candidate_words = [w.strip(",.?!") for w in words if w.strip(",.?!") and w.strip(",.?!") not in stop_words]
 
-            # Try each candidate word and multi-word combinations as locations
             for word in candidate_words:
                 coords = get_district_coords(word)
                 if coords:
                     found_location = word
                     break
 
+        is_near_me = any(w in query_lower for w in ["bana yakın", "yakınımdaki", "yakınımda", "etrafımdaki", "çevremdeki", "near me", "around me"])
         is_nearest = any(w in query_lower for w in ["yakın", "nearest", "en yakın", "closest"])
         is_cluster = any(w in query_lower for w in ["küme", "cluster", "grupla", "kümele"])
         is_distance = any(w in query_lower for w in ["mesafe", "uzaklık", "distance", "kaç km", "kaç metre"])
@@ -234,13 +246,25 @@ class GeoAgent:
                 "logs": self.logs,
             }
 
-        if is_nearest:
-            self._log("ACTION", f"find_nearest tool'u çağrılıyor: {found_poi}, {found_location}, k={k_val}")
+        if is_near_me and user_location:
+            self._log("ACTION", f"find_nearest tool'u çağrılıyor (kullanıcı konumu): {found_poi}, k={k_val}")
             result = execute_tool("find_nearest", {
+                "poi_type": found_poi,
+                "target_lat": user_location["lat"],
+                "target_lon": user_location["lon"],
+                "k": k_val,
+            })
+        elif is_nearest:
+            self._log("ACTION", f"find_nearest tool'u çağrılıyor: {found_poi}, {found_location}, k={k_val}")
+            params = {
                 "poi_type": found_poi,
                 "location": found_location,
                 "k": k_val,
-            })
+            }
+            if user_location and not found_location:
+                params["target_lat"] = user_location["lat"]
+                params["target_lon"] = user_location["lon"]
+            result = execute_tool("find_nearest", params)
         elif is_cluster:
             n = k_val if k_val <= 10 else 3
             self._log("ACTION", f"cluster_points tool'u çağrılıyor: {found_poi}, {found_location}, n={n}")
@@ -266,9 +290,15 @@ class GeoAgent:
             self._log("ERROR", result["error"])
 
         count = result.get("count", 0)
-        loc_str = found_location or "İstanbul"
 
-        if is_nearest:
+        if is_near_me and user_location:
+            loc_str = "konumunuza"
+        else:
+            loc_str = found_location or "İstanbul"
+
+        if is_near_me and user_location:
+            answer = f"Konumunuza en yakın {k_val} {found_poi} bulundu."
+        elif is_nearest:
             answer = f"{loc_str} bölgesine en yakın {k_val} {found_poi} bulundu."
         elif is_cluster:
             n = result.get("n_clusters", 3)

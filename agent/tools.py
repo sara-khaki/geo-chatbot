@@ -173,28 +173,57 @@ def _execute_find_nearest(params: dict) -> dict:
 
     search_location = location
     radius = max(5000, k * 1000)
-    gdf = _query_osm(poi_type, search_location, radius)
+
+    if search_location:
+        gdf = _query_osm(poi_type, search_location, radius)
+    else:
+        from geo.osm_client import query_overpass, build_overpass_query, get_poi_tags, elements_to_geodataframe
+        poi_tags = get_poi_tags(poi_type)
+        if poi_tags is None:
+            poi_tags = {"name": poi_type}
+        around_center = (target_lon, target_lat)
+        overpass_q = build_overpass_query(poi_tags, around_center=around_center, around_radius=radius)
+        try:
+            elements = query_overpass(overpass_q)
+        except Exception:
+            elements = []
+        gdf = elements_to_geodataframe(elements)
 
     if gdf.empty:
-        gdf = _query_osm(poi_type, search_location, radius * 2)
+        expanded_radius = radius * 2
+        if search_location:
+            gdf = _query_osm(poi_type, search_location, expanded_radius)
+        else:
+            from geo.osm_client import query_overpass, build_overpass_query, get_poi_tags, elements_to_geodataframe
+            poi_tags = get_poi_tags(poi_type)
+            if poi_tags is None:
+                poi_tags = {"name": poi_type}
+            around_center = (target_lon, target_lat)
+            overpass_q = build_overpass_query(poi_tags, around_center=around_center, around_radius=expanded_radius)
+            try:
+                elements = query_overpass(overpass_q)
+            except Exception:
+                elements = []
+            gdf = elements_to_geodataframe(elements)
 
     if gdf.empty:
         return {
             "success": True,
             "gdf": gdf,
             "count": 0,
-            "message": f"{location or 'İstanbul'} bölgesinde {poi_type} bulunamadı.",
+            "message": f"{location or 'Konumunuz'} çevresinde {poi_type} bulunamadı.",
         }
 
     nearest = _find_nearest(target_lat, target_lon, gdf, k)
     target_point = (target_lat, target_lon)
     center_coords = (target_lon, target_lat)
+    title_location = location or "Konumunuz"
     folium_map = _generate_map(
         nearest,
         center=center_coords,
         poi_type=poi_type,
         target_point=target_point,
-        title=f"En yakın {k} {poi_type} - {location or 'İstanbul'}",
+        title=f"En yakın {k} {poi_type} - {title_location}",
     )
     stats = _get_statistics(nearest)
 

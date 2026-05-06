@@ -38,6 +38,7 @@ IMPORTANT RULES:
   - **Answer**: Final response to the user
 
 - For queries about "nearest" or "en yakın", use find_nearest tool.
+- For queries like "bana yakın", "yakınımdaki", "near me", "around me" — the user's current coordinates will be provided. Use them as target_lat and target_lon with find_nearest tool.
 - For queries about showing/listing POIs in an area, use query_osm tool.
 - For clustering questions, use cluster_points tool.
 - For distance questions, use calculate_distance tool.
