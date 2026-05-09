@@ -1,3 +1,6 @@
+<img width="4800" height="4063" alt="poster" src="https://github.com/user-attachments/assets/b90bb366-f985-449c-86fd-346ccc94fd04" />
+
+
 # GeoAI ChatBot - Istanbul Spatial Querying
 
 **LLM-Powered GeoChatBot for Spatial Querying (Istanbul)**
